@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Batch QR Code Generator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+    .wrap {
+      max-width: 1180px;
+      margin: 40px auto;
+      padding: 0 20px 40px;
+    }
+    .hero {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.06);
+      margin-bottom: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      color: #6b7280;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .format-note {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      font-size: 14px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 185px;
+      resize: vertical;
+      padding: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 14px;
+      outline: none;
+      background: #fff;
+    }
+    textarea:focus {
+      border-color: #64748b;
+      box-shadow: 0 0 0 3px rgba(100,116,139,.12);
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    button, .file-label {
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .primary {
+      background: #111827;
+      color: #fff;
+    }
+    .secondary {
+      background: #475569;
+      color: #fff;
+    }
+    .light {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    input[type=file] { display: none; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+    }
+    .qr-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 24px;
+      text-align: center;
+      box-shadow: 0 6px 18px rgba(0,0,0,.05);
+      page-break-inside: avoid;
+    }
+    .qr-card img {
+      width: 205px;
+      height: 205px;
+      object-fit: contain;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+    }
+    .title {
+      margin: 16px 0 14px;
+      font-size: 19px;
+      font-weight: 700;
+      color: #111827;
+      line-height: 1.3;
+    }
+    .download-btn {
+      background: #2563eb;
+      color: white;
+      padding: 9px 13px;
+      font-size: 13px;
+      border-radius: 9px;
+    }
+    .empty {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 20px;
+      color: #6b7280;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .no-print { display: none !important; }
+      .wrap { max-width: none; margin: 0; padding: 0; }
+      .grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      .qr-card {
+        box-shadow: none;
+        border: 1px solid #d1d5db;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero no-print">
+      <h1>Batch QR Code Generator</h1>
+      <div class="subtitle">
+        Create QR codes in batches for multiple items. Each downloaded QR includes the item name.
+      </div>
+
+      <div class="format-note">
+        Enter one item per line using: <strong>Item Name | URL</strong>
+      </div>
+
+      <textarea id="input" placeholder="Item A | https://example.com/page/123
+Item B | https://example.com/page/456"></textarea>
+
+      <div class="controls">
+        <button class="primary" onclick="generateQRs()">Generate QR Codes</button>
+
+        <label class="file-label secondary">
+          Upload CSV
+          <input id="csvFile" type="file" accept=".csv,text/csv" onchange="loadCSV(event)">
+        </label>
+
+        <button class="light" onclick="window.print()">Print / Save as PDF</button>
+        <button class="light" onclick="clearAll()">Clear</button>
+      </div>
+    </section>
+
+    <div id="results" class="grid"></div>
+  </div>
+
+  <script>
+    function parseLines(text) {
+      const rows = [];
+
+      text.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+
+        const parts = trimmed.split('|');
+
+        if (parts.length >= 2) {
+          const title = parts.shift().trim();
+          const url = parts.join('|').trim();
+
+          if (title && url) rows.push({ title, url });
+        } else if (/^https?:\/\//i.test(trimmed)) {
+          rows.push({ title: 'Item', url: trimmed });
+        }
+      });
+
+      return rows;
+    }
+
+    function qrURL(url) {
+      return 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(url);
+    }
+
+    function generateQRs() {
+      const results = document.getElementById('results');
+      results.innerHTML = '';
+
+      const items = parseLines(document.getElementById('input').value);
+
+      if (!items.length) {
+        results.innerHTML = '<div class="empty">No valid items found. Use <strong>Item Name | URL</strong>.</div>';
+        return;
+      }
+
+      items.forEach((item, index) => {
+        const card = document.createElement('div');
+        card.className = 'qr-card';
+
+        const img = document.createElement('img');
+        img.src = qrURL(item.url);
+        img.alt = 'QR code for ' + item.title;
+
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = item.title;
+
+        const btn = document.createElement('button');
+        btn.className = 'download-btn no-print';
+        btn.textContent = 'Download QR';
+        btn.onclick = () => downloadQR(img.src, item.title || ('item-' + (index + 1)));
+
+        card.appendChild(img);
+        card.appendChild(title);
+        card.appendChild(btn);
+
+        results.appendChild(card);
+      });
+    }
+
+    async function downloadQR(src, name) {
+      try {
+        const response = await fetch(src);
+        const blob = await response.blob();
+        const img = await createImageBitmap(blob);
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        const qrSize = 350;
+        const padding = 24;
+        const titleArea = 70;
+
+        canvas.width = qrSize + (padding * 2);
+        canvas.height = qrSize + titleArea + (padding * 2);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.drawImage(img, padding, padding, qrSize, qrSize);
+
+        ctx.fillStyle = '#111827';
+        ctx.font = 'bold 22px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const maxWidth = canvas.width - 40;
+        let fontSize = 22;
+        while (ctx.measureText(name).width > maxWidth && fontSize > 14) {
+          fontSize--;
+          ctx.font = 'bold ' + fontSize + 'px Arial';
+        }
+
+        ctx.fillText(name, canvas.width / 2, qrSize + padding + 35);
+
+        canvas.toBlob(function(finalBlob) {
+          const objectUrl = URL.createObjectURL(finalBlob);
+          const a = document.createElement('a');
+          a.href = objectUrl;
+          a.download = safeName(name) + '.png';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        }, 'image/png');
+
+      } catch (e) {
+        window.open(src, '_blank');
+      }
+    }
+
+    function safeName(name) {
+      return name.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'qr-code';
+    }
+
+    function loadCSV(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        const output = [];
+
+        lines.forEach((line, index) => {
+          const cols = parseCSVLine(line);
+
+          if (cols.length < 2) return;
+
+          if (index === 0) {
+            const first = cols[0].toLowerCase();
+            const second = cols[1].toLowerCase();
+
+            if ((first.includes('item') || first.includes('name') || first.includes('title')) &&
+                (second.includes('url') || second.includes('link'))) {
+              return;
+            }
+          }
+
+          output.push(cols[0].trim() + ' | ' + cols[1].trim());
+        });
+
+        document.getElementById('input').value = output.join('\n');
+        generateQRs();
+      };
+
+      reader.readAsText(file);
+    }
+
+    function parseCSVLine(line) {
+      const out = [];
+      let current = '';
+      let quoted = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+
+        if (ch === '"') {
+          if (quoted && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            quoted = !quoted;
+          }
+        } else if (ch === ',' && !quoted) {
+          out.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+
+      out.push(current);
+      return out;
+    }
+
+    function clearAll() {
+      document.getElementById('input').value = '';
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('csvFile').value = '';
+    }
+  </script>
+</body>
+</html>
